@@ -66,7 +66,7 @@ Pré-requisitos:
 
 * ARM GCC Toolchain
 
- *CMake
+* CMake
 
 Estrutura de Arquivos:
 
