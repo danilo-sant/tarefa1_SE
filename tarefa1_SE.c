@@ -1,3 +1,9 @@
+// tarefa1_SE.c
+// Projeto: Tarefa 1 - Software Embarcado
+// Descrição: Implementação de um sistema embarcado com FreeRTOS para ler dados de um joystick e temperatura, e exibir no OLED.
+// Autor: Danilo
+
+// Inclui as bibliotecas necessárias
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h" 
@@ -7,11 +13,11 @@
 #include "hardware/i2c.h"
 #include <stdio.h>
 #include <string.h>
-
 #include "inc/ssd1306.h"
 #include "inc/ssd1306_font.h"
 
-// --- Constantes ---
+// Constantes de configuração
+#define LED_ALERT_PIN 11
 #define LED_PIN 12
 #define JOYSTICK_X_ADC_CH   1
 #define JOYSTICK_Y_ADC_CH   0
@@ -23,7 +29,8 @@
 #define TEMPERATURE_SAMPLES_FOR_AVERAGE 3
 #define SPLASH_SCREEN_DELAY_MS 3000 // Define o tempo da splash screen em 3 segundos
 
-// --- DADOS DO BITMAP DO LOGO (Copiado do seu arquivo display_oled (1).c) ---
+// Dados do bitmap do logo
+// O bitmap é um array de uint8_t representando a imagem do logo desejado
 const uint8_t logo_bitmap[] = {
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
@@ -91,17 +98,17 @@ const uint8_t logo_bitmap[] = {
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 };
 
-// Enum para o Joystick
+// Enumeradores para as direções do joystick
 typedef enum {
     DIR_CENTER, DIR_UP, DIR_DOWN, DIR_LEFT, DIR_RIGHT
 } JoystickDirection;
 
-// --- RECURSOS GLOBAIS PARA O DISPLAY ---
-SemaphoreHandle_t display_mutex; 
+// Recursos globais para o display
+SemaphoreHandle_t display_mutex; // Mutex para garantir acesso concorrente ao display 
 uint8_t screen_buffer[ssd1306_buffer_length];
 struct render_area frame_area;
 
-// --- Funções de Hardware e Configuração ---
+// Funções de Hardware e Configuração
 void display_setup() {
     i2c_init(i2c1, ssd1306_i2c_clock * 1000);
     gpio_set_function(14, GPIO_FUNC_I2C);
@@ -124,6 +131,8 @@ void setup(void) {
     adc_set_temp_sensor_enabled(true);
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
+    gpio_init(LED_ALERT_PIN);
+    gpio_set_dir(LED_ALERT_PIN, GPIO_OUT);
     adc_gpio_init(JOYSTICK_X_GPIO);
     adc_gpio_init(JOYSTICK_Y_GPIO);
     display_setup();
@@ -137,7 +146,7 @@ float read_onboard_temperature() {
     return 27.0f - (voltage - 0.706f) / 0.001721f;
 }
 
-// --- Tarefas (Tasks) ---
+// Tarefas (Tasks) do Projeto
 void vTemperatureTask(void *pvParameters) {
     static uint cnt = 0;
     static float avg_temp_sum = 0;
@@ -217,29 +226,26 @@ void vBlinkTask(void *pvParameters) {
     }
 }
 
-// --- Função Principal ---
+// Função Principal do Projeto
 int main() {
     setup();
     
-    // --- LÓGICA DA SPLASH SCREEN ---
-    // Este bloco é executado ANTES do FreeRTOS iniciar.
-    
-    // 1. Copia os dados do bitmap para o nosso buffer de tela global
+    // Copia os dados do bitmap para o buffer de tela global
     memcpy(screen_buffer, logo_bitmap, sizeof(logo_bitmap));
     
-    // 2. Renderiza o buffer (com o logo) no display
+    // Renderiza o buffer (com o logo) no display
     render_on_display(screen_buffer, &frame_area);
     
-    // 3. Mantém o logo na tela por 3 segundos
+    // Mantém o logo na tela por 3 segundos
     sleep_ms(SPLASH_SCREEN_DELAY_MS);
     
-    // 4. Limpa o buffer e o display para preparar para a tela de dados
+    // Limpa o buffer e o display para preparar para a tela de dados
     memset(screen_buffer, 0, ssd1306_buffer_length);
     render_on_display(screen_buffer, &frame_area);
-    // --- FIM DA LÓGICA DA SPLASH SCREEN ---
     
-    display_mutex = xSemaphoreCreateMutex();
+    display_mutex = xSemaphoreCreateMutex(); // Cria o mutex para o display
 
+    // Se o mutex foi criado com sucesso, cria as tarefas
     if (display_mutex != NULL) {
         xTaskCreate(vTemperatureTask, "Temp Task", configMINIMAL_STACK_SIZE * 4, NULL, 1, NULL);
         xTaskCreate(vJoystickTask, "Joystick Task", configMINIMAL_STACK_SIZE * 4, NULL, 1, NULL);
@@ -247,6 +253,14 @@ int main() {
         vTaskStartScheduler();
     }
     
+    // Se o mutex não foi criado, falha na inicialização
+    printf("Erro ao criar o mutex do display.\n");
+    
+    gpio_put(LED_ALERT_PIN, 1); // Liga o LED de alerta
+    sleep_ms(1000);
+    
+    printf("Sistema falhou na inicialização.\n");
+    // Loop infinito para manter o sistema ativo
     while (1);
     return 0;
 }
